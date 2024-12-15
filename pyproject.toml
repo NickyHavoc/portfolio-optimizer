@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "portfolio-optimizer"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{ include = "portfolio_optimizer", from = "src" }, { include = "stock_getter", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+streamlit = "^1.41.1"
+pytest = "^8.3.4"
+pandas-market-calendars = "^4.4.2"
+matplotlib = "^3.10.0"
+pydantic = "^2.10.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
