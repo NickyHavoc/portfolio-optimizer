@@ -28,6 +28,15 @@ class Portfolio(BaseModel):
     securities: Sequence[PortfolioSecurity]
     performance: PortfolioPerformance
 
+    def security(self, ticker_symbol: str) -> PortfolioSecurity | None:
+        return next(
+            (
+                security for security in self.securities if (
+                    security.ticker_symbol == ticker_symbol
+                )
+            ), None
+        )
+
 
 class PortfolioOptimizer:
     def __init__(self, stock_getter: StockGetter) -> None:
