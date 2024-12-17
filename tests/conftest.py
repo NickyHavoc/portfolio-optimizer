@@ -2,22 +2,22 @@ from pathlib import Path
 from typing import Sequence
 import pandas as pd
 from pytest import fixture
-from stock_getter import CsvStockGetter, MockStockGetter
+from portfolio_optimizer import StockRepository, MockStockFetcher
+
+
+@fixture(scope='function')
+def mock_stock_fetcher() -> MockStockFetcher:
+    return MockStockFetcher()
 
 
 @fixture
-def mock_stock_getter() -> MockStockGetter:
-    return MockStockGetter()
+def csv_dir() -> Path:
+    return Path(__file__).parent / 'data'
 
 
-@fixture
-def csv_path() -> Path:
-    return Path(__file__).parent / 'data/example_stocks.csv'
-
-
-@fixture
-def csv_stock_getter(csv_path: Path) -> CsvStockGetter:
-    return CsvStockGetter(csv_path)
+@fixture(scope='function')
+def stock_repository(csv_dir: Path) -> StockRepository:
+    return StockRepository(csv_dir)
 
 
 @fixture
@@ -32,11 +32,11 @@ def date_range() -> tuple[str, str]:
 
 @fixture
 def example_stocks(
-    csv_stock_getter: CsvStockGetter,
+    stock_repository: StockRepository,
     example_stock_ticker_symbols: Sequence[str],
     date_range: tuple[str, str]
 ) -> pd.DataFrame:
-    return csv_stock_getter.get_stocks(
+    return stock_repository.get_stocks(
         example_stock_ticker_symbols,
         date_range[0],
         date_range[1]

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from scipy.optimize import minimize
 from scipy.optimize._optimize import OptimizeResult
 
-from stock_getter.stock_getter import StockGetter
+from .domain.stock_repository import StockRepository
 
 
 class SecurityPerformance(BaseModel):
@@ -35,11 +35,25 @@ class Portfolio(BaseModel):
                 )
             ), None
         )
+    
+    def securities_to_dataframe(self) -> pd.DataFrame:
+            data = [
+                {
+                    "Ticker": security.ticker_symbol,
+                    "Weight": security.weight,
+                    "Sharpe": security.performance.sharpe,
+                    "Annual Return (%)": security.performance.annual_return * 100,
+                    "Annual Risk (%)": security.performance.annual_risk * 100,
+                }
+                for security in self.securities
+            ]
+            df = pd.DataFrame(data)
+            return df.sort_values(by="Weight", ascending=False).reset_index(drop=True)
 
 
 class PortfolioOptimizer:
-    def __init__(self, stock_getter: StockGetter) -> None:
-        self.stock_getter = stock_getter
+    def __init__(self, stock_repository: StockRepository) -> None:
+        self.stock_repository = stock_repository
         self._trade_days_per_year = 252 # should be coupled with data_getter as this depends on property of data
 
     def stocks(
@@ -49,7 +63,7 @@ class PortfolioOptimizer:
         end_date: str
     ) -> pd.DataFrame:
         # consider caching
-        return self.stock_getter.get_stocks(
+        return self.stock_repository.get_stocks(
             ticker_symbols, start_date, end_date
         )
 
@@ -120,10 +134,8 @@ class PortfolioOptimizer:
             risk_free_rate=risk_free_rate
         )
 
-    @staticmethod
-    def _calculate_annualized_return(stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
-        # this probably should be done somewhere else
-        num_years = len(stocks) / 252 # should this be hardcoded?
+    def _calculate_annualized_return(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
+        num_years = len(stocks) / self._trade_days_per_year
         return np.array([
             (final / initial) ** (1 / num_years) - 1
             for initial, final in zip(stocks.iloc[0], stocks.iloc[-1])
@@ -180,11 +192,11 @@ class PortfolioOptimizer:
         security_return: float,
         security_risk: float,
         risk_free_rate: float,
-        # setting default at this level, too, for standard sharpe
+        # setting default here, too, for standard sharpe
         weight_return: float = 0.5,
     ) -> float:
         return_exponent = (2 * weight_return)
-        risk_exponent = (2 * (1 - weight_return))
+        risk_exponent = (2 * (1 - weight_return ))
         return (
             ( security_return - risk_free_rate ) ** return_exponent
-        ) / ( security_risk  ** risk_exponent)
+        ) / ( security_risk  ** risk_exponent )

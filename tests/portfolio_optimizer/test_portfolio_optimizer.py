@@ -1,16 +1,15 @@
 from typing import Sequence
-import pandas as pd
 from pytest import fixture
 
 from portfolio_optimizer import PortfolioOptimizer
-from stock_getter import CsvStockGetter
+from portfolio_optimizer import StockRepository
 
 
 @fixture
 def portfolio_optimizer(
-    csv_stock_getter: CsvStockGetter
+    stock_repository: StockRepository
 ) -> PortfolioOptimizer:
-    return PortfolioOptimizer(csv_stock_getter)
+    return PortfolioOptimizer(stock_repository)
 
 
 def test_portfolio_optimizer_works(
@@ -23,7 +22,7 @@ def test_portfolio_optimizer_works(
     )
 
     assert portfolio.security('BULL').weight > portfolio.security('BEAR').weight
-    assert portfolio.security('BULL').performance.annual_return > portfolio.performance.annual_return
+    assert portfolio.security('WOLF').performance.annual_return > portfolio.performance.annual_return
     assert all(
         portfolio.performance.sharpe > security.performance.sharpe for security in portfolio.securities
     )

@@ -1,11 +1,11 @@
 
 from pathlib import Path
 from matplotlib import pyplot as plt
-from stock_getter.mock_stock_getter import MockStockGetter
+from stock_getter.mock_stock_getter import MockStockFetcher
 from stock_getter.utils import save_df_to_csv
 
 
-mock_stock_getter = MockStockGetter()
+mock_stock_getter = MockStockFetcher()
 
 example_stocks = mock_stock_getter.get_stocks(
     ticker_symbols=['BULL', 'BEAR', 'WOLF', 'DOG', 'LION'],
@@ -16,7 +16,7 @@ example_stocks = mock_stock_getter.get_stocks(
     annual_stdevs=[0.2, 0.10, 0.5, 0.2, 0.15]
 )
 
-save_df_to_csv(example_stocks, Path(__file__).parent / 'tests/data' / 'example_stocks.csv')
+save_df_to_csv(example_stocks, Path(__file__).parent / 'example_stocks.csv')
 
 plt.figure(figsize=(10, 6))
 for column in example_stocks.columns:
