@@ -10,23 +10,22 @@ from scipy.optimize._optimize import OptimizeResult
 from stock_getter.stock_getter import StockGetter
 
 
-class PortfolioSecurity(BaseModel):
-    ticker_symbol: str
-    weight: float
-    annual_return: float
-    annual_risk: float
-
-
-class PortfolioPerformance(BaseModel):
+class SecurityPerformance(BaseModel):
     sharpe: float
     annual_return: float
     annual_risk: float
-    risk_free_rate: float
+
+
+class PortfolioSecurity(BaseModel):
+    ticker_symbol: str
+    weight: float
+    performance: SecurityPerformance
 
 
 class Portfolio(BaseModel):
     securities: Sequence[PortfolioSecurity]
-    performance: PortfolioPerformance
+    performance: SecurityPerformance
+    risk_free_rate: float
 
     def security(self, ticker_symbol: str) -> PortfolioSecurity | None:
         return next(
@@ -41,7 +40,7 @@ class Portfolio(BaseModel):
 class PortfolioOptimizer:
     def __init__(self, stock_getter: StockGetter) -> None:
         self.stock_getter = stock_getter
-        self.trade_days_per_year = 252
+        self._trade_days_per_year = 252 # should be coupled with data_getter as this depends on property of data
 
     def stocks(
         self,
@@ -58,56 +57,67 @@ class PortfolioOptimizer:
         self,
         ticker_symbols: Sequence[str],
         start_date: str,
-        end_date: str
+        end_date: str,
+        weight_return: float = 0.5,
+        risk_free_rate: float = 0.0
     ) -> Portfolio:
+        assert 0 <= weight_return <= 1
+
         stocks = self.stocks(ticker_symbols, start_date, end_date)
         
         returns_day_to_day = stocks.pct_change().dropna() # dropna before?
         mean_returns_annualized = self._calculate_annualized_return(stocks)
 
         stdev_day_to_day = returns_day_to_day.std()
-        stdev_annualized = stdev_day_to_day * np.sqrt(self.trade_days_per_year)
+        stdev_annualized = stdev_day_to_day * np.sqrt(self._trade_days_per_year)
 
         covariance_matrix = returns_day_to_day.cov()
         num_assets = len(stocks.columns)
 
         constraints = ({'type': 'eq', 'fun': lambda weights: np.sum(weights) - 1})
         # Bounds: asset weights between 0 and 1 (no short selling)
-        bounds = tuple((0, 1) for asset in range(num_assets))
+        bounds = tuple((0, 1) for _ in range(num_assets))
         # Initial guess: equal allocation
         initial_weights = np.ones(num_assets) / num_assets
         # Perform optimization to minimize the negative Sharpe ratio
-        result: OptimizeResult = minimize(self._negative_sharpe_ratio, initial_weights, args=(
-            mean_returns_annualized, covariance_matrix
+        result: OptimizeResult = minimize(self._optimize, initial_weights, args=(
+            mean_returns_annualized,
+            covariance_matrix,
+            weight_return,
+            risk_free_rate
         ), method='SLSQP', bounds=bounds, constraints=constraints)
 
         # Get the optimal portfolio weights
         optimal_weights = result['x']
 
-        optimal_return = np.sum(optimal_weights * mean_returns_annualized)
-        optimal_risk = np.sqrt(
-            np.dot(
-                optimal_weights.T, np.dot(covariance_matrix, optimal_weights)
-            )
-        ) * np.sqrt(self.trade_days_per_year)
+        # replace with functions for both
+        optimal_return = self._calculate_weighted_return(optimal_weights, mean_returns_annualized)
+        optimal_risk = self._calculate_portfolio_risk(optimal_weights, covariance_matrix)
 
         return Portfolio(
             securities=[
                 PortfolioSecurity(
                     ticker_symbol=ticker_symbol,
                     weight=weight,
-                    annual_return=annual_return,
-                    annual_risk=annual_risk
+                    performance=SecurityPerformance(
+                        sharpe=self._calculate_sharpe_ratio(
+                            annual_return, annual_risk, risk_free_rate
+                        ),
+                        annual_return=annual_return,
+                        annual_risk=annual_risk
+                    )
                 ) for ticker_symbol, weight, annual_return, annual_risk in zip(
                     ticker_symbols, optimal_weights, mean_returns_annualized, stdev_annualized
                 )
             ],
-            performance=PortfolioPerformance(
+            performance=SecurityPerformance(
+                sharpe=self._calculate_sharpe_ratio(
+                    optimal_return, optimal_risk, risk_free_rate
+                ),
                 annual_return=optimal_return,
                 annual_risk=optimal_risk,
-                sharpe=optimal_return / optimal_risk,
-                risk_free_rate=0.0
-            )
+            ),
+            risk_free_rate=risk_free_rate
         )
 
     @staticmethod
@@ -119,15 +129,62 @@ class PortfolioOptimizer:
             for initial, final in zip(stocks.iloc[0], stocks.iloc[-1])
         ], dtype=np.float64)
 
-    @staticmethod
-    def _negative_sharpe_ratio(
+    def _optimize(
+        self,
         weights: NDArray[np.floating[Any]],
         mean_annualized_returns: NDArray,
-        cov_matrix
+        cov_matrix: pd.DataFrame,
+        weight_return: float,
+        risk_free_rate: float
     ) -> float:
-        # replace by more generic opimization function with weights for sharpe, risk, return
-        portfolio_return = np.sum(weights * mean_annualized_returns)
-        portfolio_volatility = np.sqrt(
-            np.dot(weights.T, np.dot(cov_matrix, weights))
-        ) * np.sqrt(252)  # Annualized risk
-        return -portfolio_return / portfolio_volatility
+        return self._determine_sharpe_ratio_for_optimization(
+            weights,
+            mean_annualized_returns,
+            cov_matrix,
+            weight_return,
+            risk_free_rate
+        )
+
+    def _determine_sharpe_ratio_for_optimization(
+        self,
+        weights: NDArray[np.floating[Any]],
+        mean_annualized_returns: NDArray,
+        covariance_matrix: pd.DataFrame,
+        weight_return: float,
+        risk_free_rate: float
+    ) -> float:
+        portfolio_return = self._calculate_weighted_return(weights, mean_annualized_returns)
+        portfolio_risk = self._calculate_portfolio_risk(weights, covariance_matrix)
+        return - self._calculate_sharpe_ratio(
+            portfolio_return, portfolio_risk, risk_free_rate, weight_return
+        )
+
+    @staticmethod
+    def _calculate_weighted_return(
+        weights: NDArray[np.floating[Any]],
+        mean_annualized_returns: NDArray
+    ) -> float:
+        return np.sum(weights * mean_annualized_returns)
+
+    def _calculate_portfolio_risk(
+        self,
+        weights: NDArray[np.floating[Any]],
+        covariance_matrix: pd.DataFrame
+    ) -> float:
+        return np.sqrt(
+            np.dot(weights.T, np.dot(covariance_matrix, weights))
+        ) * np.sqrt(self._trade_days_per_year)
+
+    @staticmethod
+    def _calculate_sharpe_ratio(
+        security_return: float,
+        security_risk: float,
+        risk_free_rate: float,
+        # setting default at this level, too, for standard sharpe
+        weight_return: float = 0.5,
+    ) -> float:
+        return_exponent = (2 * weight_return)
+        risk_exponent = (2 * (1 - weight_return))
+        return (
+            ( security_return - risk_free_rate ) ** return_exponent
+        ) / ( security_risk  ** risk_exponent)

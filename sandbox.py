@@ -12,8 +12,8 @@ example_stocks = mock_stock_getter.get_stocks(
     start_date='2020-01-01',
     end_date='2024-12-31',
     initial_prices=[15.931, 7.465, 102.410, 88.058, 55.678],
-    annual_returns=[0.2, 0.0, 0.3, -0.05, 0.25],
-    annual_stdevs=[0.2, 0.10, 0.45, 0.3, 0.15]
+    annual_returns=[0.2, -0.05, 0.35, -0.1, 0.25],
+    annual_stdevs=[0.2, 0.10, 0.5, 0.2, 0.15]
 )
 
 save_df_to_csv(example_stocks, Path(__file__).parent / 'tests/data' / 'example_stocks.csv')
