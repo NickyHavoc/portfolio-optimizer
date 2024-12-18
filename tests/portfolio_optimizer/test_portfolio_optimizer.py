@@ -2,14 +2,14 @@ from typing import Sequence
 from pytest import fixture
 
 from portfolio_optimizer import PortfolioOptimizer
-from portfolio_optimizer import StockRepository
+from portfolio_optimizer import MockStockFetcher
 
 
 @fixture
 def portfolio_optimizer(
-    stock_repository: StockRepository
+    mock_stock_fetcher: MockStockFetcher
 ) -> PortfolioOptimizer:
-    return PortfolioOptimizer(stock_repository)
+    return PortfolioOptimizer(mock_stock_fetcher)
 
 
 def test_portfolio_optimizer_works(

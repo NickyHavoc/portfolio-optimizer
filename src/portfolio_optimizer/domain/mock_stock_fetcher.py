@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from enum import Enum
+from pathlib import Path
 from typing import Any, Sequence
 import numpy as np
 
@@ -7,7 +7,8 @@ import pandas as pd
 import pandas_market_calendars as mcal
 from pydantic import BaseModel
 
-from .base_stock_fetcher import BaseStockFetcher
+from .base_stock_fetcher import BaseStockFetcher, DataFrequency
+from .stock_repository import StockRepository
 
 
 class SamplingRange(BaseModel):
@@ -30,29 +31,10 @@ class StatisticSamplingRange(SamplingRange):
         return np.random.uniform(self.min, self.max)
 
 
-class DataFrequencyInformation(BaseModel, frozen = True):
-    mcal_denotation_: str
-    approx_frequency_factor_: int
-
-
-class DataFrequency(Enum):
-    DAILY = DataFrequencyInformation(
-        mcal_denotation_='1D',
-        approx_frequency_factor_=252
-    )
-
-    @property
-    def mcal_denotation(self) -> str:
-        return self.value.mcal_denotation_
-    
-    @property
-    def approx_frequency_factor(self) -> int:
-        return self.value.approx_frequency_factor_
-
-
 class MockStockFetcher(BaseStockFetcher):
     def __init__(
         self,
+        stock_repository: StockRepository | None = None,
         initial_price_range: PriceSamplingRange = PriceSamplingRange(
             min=0.1, max=1000
         ),
@@ -64,12 +46,11 @@ class MockStockFetcher(BaseStockFetcher):
         ),
         data_frequency: DataFrequency = DataFrequency.DAILY
     ) -> None:
+        self.stock_repository = stock_repository or StockRepository(Path.cwd() / "stock_repository")
         self.initial_price_range = initial_price_range
         self.annual_return_range = annual_return_range
         self.annual_stdev_range = annual_stdev_range
         self.data_frequency = data_frequency
-
-        self.stocks: pd.DataFrame = pd.DataFrame()
 
     def fetch(
         self,
@@ -77,11 +58,14 @@ class MockStockFetcher(BaseStockFetcher):
         start_date: str,
         end_date: str
     ) -> pd.DataFrame:
-        available_ticker_symbols = set(ticker_symbols) & set(self.stocks.columns)
+        available_ticker_symbols = set(ticker_symbols) & set(
+            self.stock_repository.get_available_ticker_symbols(
+                start_date, end_date
+            )
+        )
 
-        available_stocks = self._get_columns_for_date_range(
-            self.stocks,
-            ticker_symbols,
+        available_stocks = self.stock_repository.get_stocks_without_nan(
+            list(available_ticker_symbols),
             start_date,
             end_date
         ) if len(available_ticker_symbols) else pd.DataFrame()
@@ -91,15 +75,6 @@ class MockStockFetcher(BaseStockFetcher):
         
         created_stocks = self.create_stocks(ticker_symbols, start_date, end_date)
         return pd.concat([available_stocks, created_stocks], axis=1)
-
-    @staticmethod
-    def _get_columns_for_date_range(
-        df: pd.DataFrame,
-        columns: Sequence[str],
-        start_date: str,
-        end_date: str
-    ) -> pd.DataFrame:
-        return df.loc[start_date:end_date, columns]
 
     def create_stocks(
         self,
@@ -153,7 +128,7 @@ class MockStockFetcher(BaseStockFetcher):
         stock_values = self._simulate_stock(_initial_price, daily_return, daily_stdev, len(df))
         df[ticker_symbol] = stock_values
         
-        self._add_stocks_to_df(df)
+        self._store_stock_df(df)
         return df
 
     def _sample_initial_price(self) -> float:
@@ -192,6 +167,5 @@ class MockStockFetcher(BaseStockFetcher):
             prices.append(new_price)
         return prices
 
-    def _add_stocks_to_df(self, stock_dataframe: pd.DataFrame) -> None:
-        stock_dataframe.index = pd.to_datetime(stock_dataframe.index)
-        self.stocks = self.stocks.join(stock_dataframe, how='outer')
+    def _store_stock_df(self, stock_dataframe: pd.DataFrame) -> None:
+        self.stock_repository.add_stocks(stock_dataframe)

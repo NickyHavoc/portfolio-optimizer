@@ -18,7 +18,7 @@ if "start_and_end_date" not in st.session_state:
     st.session_state["start_and_end_date"] = None
 
 start_date = st.date_input(
-    "Start Date:", value=datetime(2020, 1, 1), min_value=datetime(2000, 1, 1)
+    "Start Date:", value=datetime(2020, 1, 2), min_value=datetime(2000, 1, 1)
 ).strftime("%Y-%m-%d")
 
 end_date = st.date_input(
@@ -38,7 +38,7 @@ if (
         available_tickers = STOCK_REPO.get_available_ticker_symbols(start_date=start_date, end_date=end_date)
 
     except Exception as e:
-        st.error(f"Error retrieving available tickers: {e}")
+        st.error(e)
 
     # Default the selected tickers to the available ones
     selected_tickers = st.multiselect(
@@ -75,7 +75,7 @@ if st.button("Calculate Optimal Portfolio"):
             st.session_state["portfolio"] = portfolio
 
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(e)
 
 
 if st.session_state["portfolio"] is not None:

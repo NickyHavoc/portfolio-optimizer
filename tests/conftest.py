@@ -5,11 +5,6 @@ from pytest import fixture
 from portfolio_optimizer import StockRepository, MockStockFetcher
 
 
-@fixture(scope='function')
-def mock_stock_fetcher() -> MockStockFetcher:
-    return MockStockFetcher()
-
-
 @fixture
 def csv_dir() -> Path:
     return Path(__file__).parent / 'data'
@@ -18,6 +13,21 @@ def csv_dir() -> Path:
 @fixture(scope='function')
 def stock_repository(csv_dir: Path) -> StockRepository:
     return StockRepository(csv_dir)
+
+
+@fixture(scope='function')
+def temp_stock_repository(tmp_path: Path) -> StockRepository:
+    return StockRepository(tmp_path / 'stock_repository')
+
+
+@fixture(scope='function')
+def mock_stock_fetcher(stock_repository: StockRepository) -> MockStockFetcher:
+    return MockStockFetcher(stock_repository)
+
+
+@fixture(scope='function')
+def temp_mock_stock_fetcher(temp_stock_repository: StockRepository) -> MockStockFetcher:
+    return MockStockFetcher(temp_stock_repository)
 
 
 @fixture

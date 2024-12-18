@@ -1,7 +1,6 @@
-from abc import ABC, abstractmethod
-from datetime import datetime
+from abc import abstractmethod
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -26,8 +25,11 @@ class StockRepository:
             
             dfs.append(df)
         
-        joined_df = pd.concat(dfs, axis=1, ignore_index=False)
-        return joined_df
+        if dfs:
+            joined_df = pd.concat(dfs, axis=1, ignore_index=False)
+            return joined_df
+        
+        return pd.DataFrame()
 
     def add_stocks(self, stocks: pd.DataFrame) -> None:
         self._validate_stock_df(stocks)
@@ -52,16 +54,21 @@ class StockRepository:
 
         stock_symbol = stock.columns[0]
         stock_path = self._stock_path(stock_symbol)
-        read_stock = pd.read_csv(stock_path, index_col=0)
 
-        assert stock_symbol in read_stock.columns
-        
-        for iter_index, value in stock[stock_symbol].items():
-            if iter_index in stock.index:
-                read_stock.at[iter_index, stock_symbol] = value
-            else:
-                new_row = pd.DataFrame({stock_symbol: [value]}, index=[iter_index])
-                read_stock = pd.concat([read_stock, new_row])
+        if stock_path.exists():
+            read_stock = pd.read_csv(stock_path, index_col=0)
+
+            assert stock_symbol in read_stock.columns
+            
+            for iter_index, value in stock[stock_symbol].items():
+                if iter_index in stock.index:
+                    read_stock.at[iter_index, stock_symbol] = value
+                else:
+                    new_row = pd.DataFrame({stock_symbol: [value]}, index=[iter_index])
+                    read_stock = pd.concat([read_stock, new_row])
+
+        else:
+            read_stock = stock
 
         self._store_stock_file(read_stock, stock_path)
         self._store_stock_memory(read_stock, stock_symbol)
@@ -163,4 +170,7 @@ class StockRepository:
         self.add_stocks(stock_df)
 
     def get_available_ticker_symbols(self, start_date: str, end_date: str) -> Sequence[str]:
-        return self._get_all_full_columns_in_date_range(self.stocks, start_date, end_date).columns.to_list()
+        try:
+            return self._get_all_full_columns_in_date_range(self.stocks, start_date, end_date).columns.to_list()
+        except:
+            return []

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from scipy.optimize import minimize
 from scipy.optimize._optimize import OptimizeResult
 
-from .domain.stock_repository import StockRepository
+from .domain.base_stock_fetcher import BaseStockFetcher
 
 
 class SecurityPerformance(BaseModel):
@@ -52,9 +52,8 @@ class Portfolio(BaseModel):
 
 
 class PortfolioOptimizer:
-    def __init__(self, stock_repository: StockRepository) -> None:
-        self.stock_repository = stock_repository
-        self._trade_days_per_year = 252 # should be coupled with data_getter as this depends on property of data
+    def __init__(self, stock_fetcher: BaseStockFetcher) -> None:
+        self.stock_fetcher = stock_fetcher
 
     def stocks(
         self,
@@ -63,7 +62,7 @@ class PortfolioOptimizer:
         end_date: str
     ) -> pd.DataFrame:
         # consider caching
-        return self.stock_repository.get_stocks(
+        return self.stock_fetcher.fetch(
             ticker_symbols, start_date, end_date
         )
 
@@ -83,7 +82,7 @@ class PortfolioOptimizer:
         mean_returns_annualized = self._calculate_annualized_return(stocks)
 
         stdev_day_to_day = returns_day_to_day.std()
-        stdev_annualized = stdev_day_to_day * np.sqrt(self._trade_days_per_year)
+        stdev_annualized = stdev_day_to_day * np.sqrt(self.stock_fetcher.data_frequency.approx_frequency_factor)
 
         covariance_matrix = returns_day_to_day.cov()
         num_assets = len(stocks.columns)
@@ -135,7 +134,7 @@ class PortfolioOptimizer:
         )
 
     def _calculate_annualized_return(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
-        num_years = len(stocks) / self._trade_days_per_year
+        num_years = len(stocks) / self.stock_fetcher.data_frequency.approx_frequency_factor
         return np.array([
             (final / initial) ** (1 / num_years) - 1
             for initial, final in zip(stocks.iloc[0], stocks.iloc[-1])
@@ -185,7 +184,7 @@ class PortfolioOptimizer:
     ) -> float:
         return np.sqrt(
             np.dot(weights.T, np.dot(covariance_matrix, weights))
-        ) * np.sqrt(self._trade_days_per_year)
+        ) * np.sqrt(self.stock_fetcher.data_frequency.approx_frequency_factor)
 
     @staticmethod
     def _calculate_sharpe_ratio(
