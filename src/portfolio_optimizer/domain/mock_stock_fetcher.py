@@ -65,16 +65,20 @@ class MockStockFetcher(BaseStockFetcher):
         )
 
         available_stocks = self.stock_repository.get_stocks_without_nan(
-            list(available_ticker_symbols),
+            list[available_ticker_symbols],
             start_date,
             end_date
         ) if len(available_ticker_symbols) else pd.DataFrame()
         
         if len(available_stocks.columns) == len(ticker_symbols):
-            return available_stocks
+            return available_stocks.reindex(columns=ticker_symbols)
         
-        created_stocks = self.create_stocks(ticker_symbols, start_date, end_date)
-        return pd.concat([available_stocks, created_stocks], axis=1)
+        created_stocks = self.create_stocks(
+            [s for s in ticker_symbols if s not in available_ticker_symbols], start_date, end_date
+        )
+        combined_stocks = pd.concat([available_stocks, created_stocks], axis=1)
+        
+        return combined_stocks.reindex(columns=ticker_symbols)
 
     def create_stocks(
         self,
