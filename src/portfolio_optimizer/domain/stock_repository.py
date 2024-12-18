@@ -136,7 +136,7 @@ class StockRepository:
             pd.to_datetime(end_date).tz_localize('UTC').normalize() > latest_timestamp.normalize()
         ) :
             raise ValueError(
-                f"Earliest value: '{str(earliest_timestamp)}', latest value: '{str(earliest_timestamp)}'. Please specify different dates."
+                f"Earliest value: '{str(earliest_timestamp)}', latest value: '{str(latest_timestamp)}'. Please specify different dates."
             )
 
         filtered_df = df.loc[start_date:end_date]

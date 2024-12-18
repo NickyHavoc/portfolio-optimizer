@@ -27,7 +27,7 @@ def example_stock_ticker_symbols() -> Sequence[str]:
 
 @fixture
 def date_range() -> tuple[str, str]:
-    return ('2020-01-01', '2024-12-31')
+    return ('2020-01-02', '2024-12-31')
 
 
 @fixture
