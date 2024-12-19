@@ -1,4 +1,4 @@
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
@@ -19,7 +19,7 @@ class SecurityPerformance(BaseModel):
 class PortfolioSecurity(BaseModel):
     ticker_symbol: str
     weight: float
-    performance: SecurityPerformance
+    performance: SecurityPerformance | None = None
 
 
 class Portfolio(BaseModel):
@@ -57,9 +57,9 @@ class PortfolioOptimizer:
 
     def stocks(
         self,
-        ticker_symbols: Sequence[str],
+        ticker_symbols: Iterable[str],
         start_date: str,
-        end_date: str
+        end_date: str,
     ) -> pd.DataFrame:
         # consider caching
         return self.stock_fetcher.fetch(
@@ -72,61 +72,84 @@ class PortfolioOptimizer:
         start_date: str,
         end_date: str,
         weight_return: float = 0.5,
-        risk_free_rate: float = 0.0
+        risk_free_rate: float = 0.0,
+        fixed_securities: Sequence[PortfolioSecurity] = list()
     ) -> Portfolio:
         assert 0 <= weight_return <= 1
 
-        stocks = self.stocks(ticker_symbols, start_date, end_date)
-        
-        returns_day_to_day = stocks.pct_change().dropna() # dropna before?
-        mean_returns_annualized = self._calculate_annualized_return(stocks)
+        fixed_ticker_symbols = [fs.ticker_symbol for fs in fixed_securities]
+        fixed_stocks = self.stocks(fixed_ticker_symbols, start_date, end_date)
+        fixed_stocks.columns = ['FIXED-' + col for col in fixed_stocks.columns]
+        new_stocks = self.stocks(ticker_symbols, start_date, end_date)
+        stocks = pd.concat([fixed_stocks, new_stocks], axis=1)
+        joined_ticker_symbols = fixed_ticker_symbols + ticker_symbols
 
+        returns_day_to_day = stocks.pct_change().dropna()
+        mean_returns_annualized = self._calculate_annualized_return(stocks)
         stdev_day_to_day = returns_day_to_day.std()
         stdev_annualized = stdev_day_to_day * np.sqrt(self.stock_fetcher.data_frequency.approx_frequency_factor)
-
         covariance_matrix = returns_day_to_day.cov()
         num_assets = len(stocks.columns)
 
-        constraints = ({'type': 'eq', 'fun': lambda weights: np.sum(weights) - 1})
-        # Bounds: asset weights between 0 and 1 (no short selling)
+        # Fixed weights for securities (now we handle column name changes for fixed stocks)
+        fixed_weights = np.zeros(num_assets)
+        for fixed_security in fixed_securities:
+            # Match the ticker with the "FIXED-" prefix
+            fixed_ticker = 'FIXED-' + fixed_security.ticker_symbol
+            idx = stocks.columns.get_loc(fixed_ticker)
+            fixed_weights[idx] = fixed_security.weight
+
+        # Remaining budget to optimize
+        open_budget = 1 - np.sum(fixed_weights)
+        assert open_budget >= 0, "Fixed weights exceed total budget!"
+
+        # Adjust constraints for optimization
+        def constraint_function(weights):
+            return np.sum(weights) - open_budget
+
+        constraints = [{'type': 'eq', 'fun': constraint_function}]
+
+        # Bounds only apply to optimizable securities (those not fixed)
+        bounds = [(0, 1) if fixed_weights[i] == 0 else (0, 0) for i in range(num_assets)]
+        initial_weights = np.ones(num_assets) * (open_budget / np.count_nonzero(fixed_weights == 0))
+
         bounds = tuple((0, 1) for _ in range(num_assets))
-        # Initial guess: equal allocation
-        initial_weights = np.ones(num_assets) / num_assets
-        # Perform optimization to minimize the negative Sharpe ratio
-        result: OptimizeResult = minimize(self._optimize, initial_weights, args=(
-            mean_returns_annualized,
-            covariance_matrix,
-            weight_return,
-            risk_free_rate
-        ), method='SLSQP', bounds=bounds, constraints=constraints)
 
-        # Get the optimal portfolio weights
-        optimal_weights = result['x']
+        # Perform optimization
+        result: OptimizeResult = minimize(
+            self._optimize,
+            initial_weights,
+            args=(mean_returns_annualized, covariance_matrix, weight_return, risk_free_rate),
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints
+        )
 
-        # replace with functions for both
-        optimal_return = self._calculate_weighted_return(optimal_weights, mean_returns_annualized)
-        optimal_risk = self._calculate_portfolio_risk(optimal_weights, covariance_matrix)
+        # Combine fixed and optimized weights
+        optimized_weights = result['x']
+        final_weights = fixed_weights + optimized_weights
 
+        # Portfolio statistics
+        optimal_return = self._calculate_weighted_return(final_weights, mean_returns_annualized)
+        optimal_risk = self._calculate_portfolio_risk(final_weights, covariance_matrix)
+
+        # Return the optimal portfolio with performance statistics
         return Portfolio(
             securities=[
                 PortfolioSecurity(
                     ticker_symbol=ticker_symbol,
                     weight=weight,
                     performance=SecurityPerformance(
-                        sharpe=self._calculate_sharpe_ratio(
-                            annual_return, annual_risk, risk_free_rate
-                        ),
+                        sharpe=self._calculate_sharpe_ratio(annual_return, annual_risk, risk_free_rate),
                         annual_return=annual_return,
                         annual_risk=annual_risk
                     )
                 ) for ticker_symbol, weight, annual_return, annual_risk in zip(
-                    ticker_symbols, optimal_weights, mean_returns_annualized, stdev_annualized
+                    joined_ticker_symbols, final_weights, mean_returns_annualized, stdev_annualized
                 )
             ],
             performance=SecurityPerformance(
-                sharpe=self._calculate_sharpe_ratio(
-                    optimal_return, optimal_risk, risk_free_rate
-                ),
+                sharpe=self._calculate_sharpe_ratio(optimal_return, optimal_risk, risk_free_rate),
                 annual_return=optimal_return,
                 annual_risk=optimal_risk,
             ),

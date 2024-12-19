@@ -3,52 +3,93 @@ import plotly.express as px
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-from portfolio_optimizer import PortfolioOptimizer, Portfolio, StockRepository
+from portfolio_optimizer import PortfolioOptimizer, Portfolio, StockRepository, YFinanceStockFetcher
+from portfolio_optimizer.portfolio_optimizer import PortfolioSecurity
 
-STOCK_REPO = StockRepository(Path(__file__).parent / "data_example")
-OPTIMIZER = PortfolioOptimizer(STOCK_REPO)
+
+# Initialize session state for persistent objects
+if 'initialized' not in st.session_state:
+    st.session_state['initialized'] = True
+    STOCK_REPOSITORY = StockRepository(Path(__file__).parent / "stock_repository")
+    st.session_state['STOCK_REPOSITORY'] = STOCK_REPOSITORY
+    STOCK_FETCHER = YFinanceStockFetcher(STOCK_REPOSITORY)
+    st.session_state['STOCK_FETCHER'] = STOCK_FETCHER
+    OPTIMIZER = PortfolioOptimizer(STOCK_FETCHER)
+    st.session_state['OPTIMIZER'] = OPTIMIZER
 
 st.title("Optimal Portfolio Calculator")
 st.markdown("Enter the parameters to compute the optimal portfolio.")
 
+# Access session state objects
+STOCK_FETCHER: YFinanceStockFetcher = st.session_state['STOCK_FETCHER']
+OPTIMIZER: PortfolioOptimizer = st.session_state['OPTIMIZER']
+
 if "portfolio" not in st.session_state:
     st.session_state["portfolio"] = None
 
-if "start_and_end_date" not in st.session_state:
-    st.session_state["start_and_end_date"] = None
-
+# Date Input
 start_date = st.date_input(
-    "Start Date:", value=datetime(2020, 1, 2), min_value=datetime(2000, 1, 1)
+    "Start Date:", value=datetime(2015, 1, 1), min_value=datetime(2000, 1, 1)
 ).strftime("%Y-%m-%d")
 
 end_date = st.date_input(
-    "End Date:", value=datetime(2024, 12, 31), min_value=datetime(2000, 1, 1)
+    "End Date:", value=datetime(2024, 12, 17), min_value=datetime(2000, 1, 1)
 ).strftime("%Y-%m-%d")
 
-available_tickers = []
-if start_date and end_date:
-    st.session_state["start_and_end_date"] = (start_date, end_date)
+if start_date >= end_date:
+    st.error("Start date must be earlier than end date.")
 
-if (
-    st.session_state["start_and_end_date"] is not None
-):
-    start_and_end_date = st.session_state["start_and_end_date"][0], st.session_state["start_and_end_date"][1]
-    
+# Section 1: Define Fixed Securities
+st.subheader("1. Enter Fixed Securities and Weights")
+fixed_securities_df = pd.DataFrame({'Ticker Symbol': [''], 'Weight': [0.0]})
+edited_fixed_securities = st.data_editor(
+    fixed_securities_df, use_container_width=True, num_rows="dynamic"
+)
+
+fixed_securities = []
+for _, row in edited_fixed_securities.iterrows():
     try:
-        available_tickers = STOCK_REPO.get_available_ticker_symbols(start_date=start_date, end_date=end_date)
+        ticker = str(row["Ticker Symbol"]).strip().upper()
+        weight = float(row["Weight"])
+        if ticker and 0 <= weight <= 1:
+            fixed_securities.append(PortfolioSecurity(ticker_symbol=ticker, weight=weight))
+        else:
+            st.warning(f"Invalid entry: {ticker} with weight {weight}")
+    except ValueError:
+        st.warning(f"Invalid data format in row: {row}")
 
+if fixed_securities:
+    st.write("### Fixed Securities")
+    st.table(pd.DataFrame([sec.dict() for sec in fixed_securities]))
+
+# Section 2: Select Additional Tickers
+st.subheader("2. Select Additional Tickers")
+if st.button("Fetch Available Tickers"):
+    try:
+        available_tickers = STOCK_FETCHER.get_available_ticker_symbols(
+            start_date=start_date, end_date=end_date
+        )
+        st.session_state["available_tickers"] = available_tickers
     except Exception as e:
-        st.error(e)
+        st.error(f"Error fetching tickers: {e}")
 
-    # Default the selected tickers to the available ones
+if "available_tickers" in st.session_state:
+    available_tickers = st.session_state["available_tickers"]
     selected_tickers = st.multiselect(
-        "Select Tickers:", available_tickers, default=available_tickers
+        "Select Tickers:", available_tickers, default=set(available_tickers)
     )
+    custom_tickers_input = st.text_area(
+        "Add Custom Tickers (comma-separated, e.g., TSLA,AAPL,GOOG):"
+    )
+    if custom_tickers_input:
+        custom_tickers = [ticker.strip().upper() for ticker in custom_tickers_input.split(",") if ticker.strip()]
+        selected_tickers = list(set(selected_tickers + custom_tickers))
+    st.write("Selected Tickers:", selected_tickers)
+else:
+    selected_tickers = []
 
-    # Save the selected tickers in session state
-    if selected_tickers:
-        st.session_state["start_and_end_date"] = selected_tickers
-
+# Section 3: Optimization Parameters
+st.subheader("3. Set Optimization Parameters")
 weight_return = st.slider(
     "Weight for Return in Sharpe Ratio (0 to 1):", min_value=0.0, max_value=1.0, value=0.5, step=0.01
 )
@@ -57,9 +98,11 @@ risk_free_rate = st.slider(
     "Risk-Free Rate (0.0 to 0.1):", min_value=0.0, max_value=0.1, value=0.02, step=0.001
 )
 
+# Section 4: Optimize Portfolio
+st.subheader("4. Optimize Portfolio")
 if st.button("Calculate Optimal Portfolio"):
-    if not selected_tickers:
-        st.error("Please select at least one ticker symbol.")
+    if not selected_tickers and not fixed_securities:
+        st.error("Please provide fixed securities or select at least one additional ticker.")
     elif start_date >= end_date:
         st.error("Start date must be earlier than end date.")
     else:
@@ -69,18 +112,16 @@ if st.button("Calculate Optimal Portfolio"):
                 start_date=start_date,
                 end_date=end_date,
                 weight_return=weight_return,
-                risk_free_rate=risk_free_rate
+                risk_free_rate=risk_free_rate,
+                fixed_securities=fixed_securities
             )
-
             st.session_state["portfolio"] = portfolio
-
         except Exception as e:
-            st.error(e)
+            st.error(f"Error during optimization: {e}")
 
-
+# Display Results
 if st.session_state["portfolio"] is not None:
     portfolio = st.session_state["portfolio"]
-
     st.subheader("Portfolio Performance and Securities")
 
     col1, col2 = st.columns([1, 1])

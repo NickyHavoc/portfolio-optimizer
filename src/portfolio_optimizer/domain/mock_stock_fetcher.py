@@ -35,6 +35,7 @@ class MockStockFetcher(BaseStockFetcher):
     def __init__(
         self,
         stock_repository: StockRepository | None = None,
+        data_frequency: DataFrequency = DataFrequency.DAILY,
         initial_price_range: PriceSamplingRange = PriceSamplingRange(
             min=0.1, max=1000
         ),
@@ -43,42 +44,13 @@ class MockStockFetcher(BaseStockFetcher):
         ),
         annual_stdev_range: StatisticSamplingRange = StatisticSamplingRange(
             min=0.1, max=0.6
-        ),
-        data_frequency: DataFrequency = DataFrequency.DAILY
+        )
     ) -> None:
         self.stock_repository = stock_repository or StockRepository(Path.cwd() / "stock_repository")
+        self.data_frequency = data_frequency
         self.initial_price_range = initial_price_range
         self.annual_return_range = annual_return_range
         self.annual_stdev_range = annual_stdev_range
-        self.data_frequency = data_frequency
-
-    def fetch(
-        self,
-        ticker_symbols: Sequence[str],
-        start_date: str,
-        end_date: str
-    ) -> pd.DataFrame:
-        available_ticker_symbols = set(ticker_symbols) & set(
-            self.stock_repository.get_available_ticker_symbols(
-                start_date, end_date
-            )
-        )
-
-        available_stocks = self.stock_repository.get_stocks_without_nan(
-            list[available_ticker_symbols],
-            start_date,
-            end_date
-        ) if len(available_ticker_symbols) else pd.DataFrame()
-        
-        if len(available_stocks.columns) == len(ticker_symbols):
-            return available_stocks.reindex(columns=ticker_symbols)
-        
-        created_stocks = self.create_stocks(
-            [s for s in ticker_symbols if s not in available_ticker_symbols], start_date, end_date
-        )
-        combined_stocks = pd.concat([available_stocks, created_stocks], axis=1)
-        
-        return combined_stocks.reindex(columns=ticker_symbols)
 
     def create_stocks(
         self,
@@ -97,7 +69,7 @@ class MockStockFetcher(BaseStockFetcher):
                 return None
         
         stocks = [
-            self.create_stock(
+            self._create_stock(
                 ticker_symbol,
                 start_date,
                 end_date,
@@ -108,7 +80,7 @@ class MockStockFetcher(BaseStockFetcher):
         ]
         return pd.concat(stocks, axis=1)
 
-    def create_stock(
+    def _create_stock(
         self,
         ticker_symbol: str,
         start_date: str,
@@ -132,7 +104,7 @@ class MockStockFetcher(BaseStockFetcher):
         stock_values = self._simulate_stock(_initial_price, daily_return, daily_stdev, len(df))
         df[ticker_symbol] = stock_values
         
-        self._store_stock_df(df)
+        self.store_stock_df(df)
         return df
 
     def _sample_initial_price(self) -> float:
@@ -170,6 +142,3 @@ class MockStockFetcher(BaseStockFetcher):
             new_price = round(prices[-1] * daily_change, 3)
             prices.append(new_price)
         return prices
-
-    def _store_stock_df(self, stock_dataframe: pd.DataFrame) -> None:
-        self.stock_repository.add_stocks(stock_dataframe)
