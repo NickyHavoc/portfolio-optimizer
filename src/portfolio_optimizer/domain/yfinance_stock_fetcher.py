@@ -14,10 +14,12 @@ class YFinanceStockFetcher(BaseStockFetcher):
     def __init__(
         self,
         stock_repository: StockRepository | None = None,
-        data_frequency: DataFrequency = DataFrequency.DAILY
+        data_frequency: DataFrequency = DataFrequency.DAILY,
+        include_dividend: bool = True
     ) -> None:
         self.stock_repository = stock_repository or StockRepository(Path.cwd() / "stock_repository")
         self.data_frequency = data_frequency
+        self.include_dividend = include_dividend
 
     def create_stocks(
         self,
@@ -25,9 +27,55 @@ class YFinanceStockFetcher(BaseStockFetcher):
         start_date: str,
         end_date: str,
     ) -> pd.DataFrame:
-        data: pd.DataFrame = yf.download(ticker_symbols, start=start_date, end=self._add_one_day_to_date(end_date))['Adj Close']
-        self.store_stock_df(data)
-        return data
+        if self.include_dividend:
+            stock_data = self._create_stocks_with_dividends(
+                ticker_symbols, start_date, end_date
+            )
+        else:
+            stock_data = self._create_stocks_without_dividends(
+                ticker_symbols, start_date, end_date
+            )
+        self.store_stock_df(stock_data)
+        return stock_data
+    
+    def _create_stocks_with_dividends(
+        self,
+        ticker_symbols: Sequence[str],
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        data = yf.download(
+            ticker_symbols, 
+            start=start_date, 
+            end=self._add_one_day_to_date(end_date),
+            actions=True
+        )
+
+        adj_close = data['Adj Close']
+        dividends = data.get('Dividends', pd.DataFrame(0, index=adj_close.index, columns=ticker_symbols))
+
+        adj_close_with_dividends = adj_close.copy()
+        for ticker in adj_close.columns:
+            if not ticker in dividends.columns:
+                continue
+
+            cumulative_return = 1.0
+            for i in range(len(adj_close)):
+                if dividends[ticker].iloc[i] > 0:  # Account for dividends
+                    cumulative_return += dividends[ticker].iloc[i] / adj_close[ticker].iloc[i]
+                adj_close_with_dividends[ticker].iloc[i] *= cumulative_return
+
+        return adj_close_with_dividends
+    
+    def _create_stocks_without_dividends(
+        self,
+        ticker_symbols: Sequence[str],
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        return yf.download(
+            ticker_symbols, start=start_date, end=self._add_one_day_to_date(end_date)
+        )['Adj Close']
 
     @staticmethod
     def _add_one_day_to_date(date_str: str) -> str:
