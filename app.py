@@ -98,6 +98,10 @@ risk_free_rate = st.slider(
     "Risk-Free Rate (0.0 to 0.1):", min_value=0.0, max_value=0.1, value=0.02, step=0.001
 )
 
+max_weight = st.slider(
+    "Maximum Weight per Security (0 to 1):", min_value=0.0, max_value=1.0, value=0.2, step=0.01
+)
+
 # Section 4: Optimize Portfolio
 st.subheader("4. Optimize Portfolio")
 if st.button("Calculate Optimal Portfolio"):
@@ -113,7 +117,8 @@ if st.button("Calculate Optimal Portfolio"):
                 end_date=end_date,
                 weight_return=weight_return,
                 risk_free_rate=risk_free_rate,
-                fixed_securities=fixed_securities
+                fixed_securities=fixed_securities,
+                max_weight=max_weight
             )
             st.session_state["portfolio"] = portfolio
         except Exception as e:

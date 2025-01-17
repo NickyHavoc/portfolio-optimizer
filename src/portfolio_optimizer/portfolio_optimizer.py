@@ -73,9 +73,11 @@ class PortfolioOptimizer:
         end_date: str,
         weight_return: float = 0.5,
         risk_free_rate: float = 0.0,
-        fixed_securities: Sequence[PortfolioSecurity] = list()
+        fixed_securities: Sequence[PortfolioSecurity] = list(),
+        max_weight: float = 0.2  # New parameter
     ) -> Portfolio:
         assert 0 <= weight_return <= 1
+        assert 0 < max_weight <= 1, "max_weight must be between 0 and 1"
 
         fixed_ticker_symbols = [fs.ticker_symbol for fs in fixed_securities]
         fixed_stocks = self.stocks(fixed_ticker_symbols, start_date, end_date)
@@ -110,10 +112,11 @@ class PortfolioOptimizer:
         constraints = [{'type': 'eq', 'fun': constraint_function}]
 
         # Bounds only apply to optimizable securities (those not fixed)
-        bounds = [(0, 1) if fixed_weights[i] == 0 else (0, 0) for i in range(num_assets)]
+        bounds = [
+            (0, max_weight) if fixed_weights[i] == 0 else (0, 0)
+            for i in range(num_assets)
+        ]
         initial_weights = np.ones(num_assets) * (open_budget / np.count_nonzero(fixed_weights == 0))
-
-        bounds = tuple((0, 1) for _ in range(num_assets))
 
         # Perform optimization
         result: OptimizeResult = minimize(
