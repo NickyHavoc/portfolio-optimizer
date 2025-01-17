@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 from portfolio_optimizer import PortfolioOptimizer, Portfolio, StockRepository, YFinanceStockFetcher
-from portfolio_optimizer.portfolio_optimizer import PortfolioSecurity
+from portfolio_optimizer.portfolio_optimizer import PortfolioSecurity, YearlyReturn
 
 
 # Initialize session state for persistent objects
@@ -90,6 +90,14 @@ else:
 
 # Section 3: Optimization Parameters
 st.subheader("3. Set Optimization Parameters")
+
+yearly_return_method = st.selectbox(
+    "Select the method for yearly return calculation:",
+    options=[YearlyReturn[m].value for m in YearlyReturn.__members__],
+    index=0
+)
+selected_yearly_return_enum = YearlyReturn.from_string(yearly_return_method)
+
 weight_return = st.slider(
     "Weight for Return in Sharpe Ratio (0 to 1):", min_value=0.0, max_value=1.0, value=0.5, step=0.01
 )
@@ -118,7 +126,8 @@ if st.button("Calculate Optimal Portfolio"):
                 weight_return=weight_return,
                 risk_free_rate=risk_free_rate,
                 fixed_securities=fixed_securities,
-                max_weight=max_weight
+                max_weight=max_weight,
+                yearly_return_method=selected_yearly_return_enum  # Pass the enum here
             )
             st.session_state["portfolio"] = portfolio
         except Exception as e:

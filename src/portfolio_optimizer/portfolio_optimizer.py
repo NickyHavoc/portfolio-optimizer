@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any, Iterable, Sequence
 import numpy as np
 from numpy.typing import NDArray
@@ -8,6 +9,17 @@ from scipy.optimize import minimize
 from scipy.optimize._optimize import OptimizeResult
 
 from .domain.base_stock_fetcher import BaseStockFetcher
+
+
+class YearlyReturn(Enum):
+    CAGR = 'CAGR'
+    MEAN = 'Mean of yearly returns'
+    MEDIAN = 'Median of yearly returns'
+    TWR = 'TWR'
+
+    @classmethod
+    def from_string(cls, value: str) -> "YearlyReturn":
+        return cls(value)
 
 
 class SecurityPerformance(BaseModel):
@@ -50,7 +62,6 @@ class Portfolio(BaseModel):
             df = pd.DataFrame(data)
             return df.sort_values(by="Weight", ascending=False).reset_index(drop=True)
 
-
 class PortfolioOptimizer:
     def __init__(self, stock_fetcher: BaseStockFetcher) -> None:
         self.stock_fetcher = stock_fetcher
@@ -74,7 +85,8 @@ class PortfolioOptimizer:
         weight_return: float = 0.5,
         risk_free_rate: float = 0.0,
         fixed_securities: Sequence[PortfolioSecurity] = list(),
-        max_weight: float = 0.2  # New parameter
+        max_weight: float = 0.2,
+        yearly_return_method: YearlyReturn = YearlyReturn.CAGR
     ) -> Portfolio:
         assert 0 <= weight_return <= 1
         assert 0 < max_weight <= 1, "max_weight must be between 0 and 1"
@@ -87,7 +99,7 @@ class PortfolioOptimizer:
         joined_ticker_symbols = fixed_ticker_symbols + ticker_symbols
 
         returns_day_to_day = stocks.pct_change().dropna()
-        mean_returns_annualized = self._calculate_annualized_return(stocks)
+        mean_returns_annualized = self._calculate_yearly_returns(stocks, yearly_return_method)
         stdev_day_to_day = returns_day_to_day.std()
         stdev_annualized = stdev_day_to_day * np.sqrt(self.stock_fetcher.data_frequency.approx_frequency_factor)
         covariance_matrix = returns_day_to_day.cov()
@@ -159,12 +171,49 @@ class PortfolioOptimizer:
             risk_free_rate=risk_free_rate
         )
 
-    def _calculate_annualized_return(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
-        num_years = len(stocks) / self.stock_fetcher.data_frequency.approx_frequency_factor
+    def _calculate_yearly_returns(self, stocks: pd.DataFrame, yearly_return_type: YearlyReturn) -> NDArray[np.floating[Any]]:
+        match yearly_return_type:
+            case YearlyReturn.CAGR:
+                return self._calculate_cagr(stocks)
+            case YearlyReturn.MEAN:
+                return self._calculate_mean_of_yearly_returns(stocks)
+            case YearlyReturn.MEDIAN:
+                return self._calculate_median_of_yearly_returns(stocks)
+            case YearlyReturn.TWR:
+                return self._calculate_twr(stocks)
+            case _:
+                raise ValueError(f"Unsupported calculation type: {yearly_return_type}")
+
+    def _calculate_cagr(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
+        num_days = len(stocks)
+        num_years = num_days / self.stock_fetcher.data_frequency.approx_frequency_factor  # Convert days to years
         return np.array([
             (final / initial) ** (1 / num_years) - 1
             for initial, final in zip(stocks.iloc[0], stocks.iloc[-1])
         ], dtype=np.float64)
+
+    def _calculate_year_over_year_returns(self, stocks: pd.DataFrame, freq: int) -> NDArray[np.floating[Any]]:
+        return np.array([
+            [(stocks.iloc[i + freq, col] - stocks.iloc[i, col]) / stocks.iloc[i, col]
+                for i in range(0, len(stocks) - freq, freq)]
+            for col in range(stocks.shape[1])
+        ])
+
+    def _calculate_mean_of_yearly_returns(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
+        freq = self.stock_fetcher.data_frequency.approx_frequency_factor
+        yearly_returns = self._calculate_year_over_year_returns(stocks, freq)
+        return np.mean(yearly_returns, axis=1)
+
+    def _calculate_median_of_yearly_returns(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
+        freq = self.stock_fetcher.data_frequency.approx_frequency_factor
+        yearly_returns = self._calculate_year_over_year_returns(stocks, freq)
+        return np.median(yearly_returns, axis=1)
+
+    def _calculate_twr(self, stocks: pd.DataFrame) -> NDArray[np.floating[Any]]:
+        freq = self.stock_fetcher.data_frequency.approx_frequency_factor
+        yearly_returns = self._calculate_year_over_year_returns(stocks, freq)
+        n_years = yearly_returns.shape[1]
+        return np.power(np.prod(1 + yearly_returns, axis=1), 1/n_years) - 1
 
     def _optimize(
         self,
@@ -185,12 +234,12 @@ class PortfolioOptimizer:
     def _determine_sharpe_ratio_for_optimization(
         self,
         weights: NDArray[np.floating[Any]],
-        mean_annualized_returns: NDArray,
+        returns: NDArray,
         covariance_matrix: pd.DataFrame,
         weight_return: float,
         risk_free_rate: float
     ) -> float:
-        portfolio_return = self._calculate_weighted_return(weights, mean_annualized_returns)
+        portfolio_return = self._calculate_weighted_return(weights, returns)
         portfolio_risk = self._calculate_portfolio_risk(weights, covariance_matrix)
         return - self._calculate_sharpe_ratio(
             portfolio_return, portfolio_risk, risk_free_rate, weight_return
@@ -199,9 +248,9 @@ class PortfolioOptimizer:
     @staticmethod
     def _calculate_weighted_return(
         weights: NDArray[np.floating[Any]],
-        mean_annualized_returns: NDArray
+        returns: NDArray
     ) -> float:
-        return np.sum(weights * mean_annualized_returns)
+        return np.sum(weights * returns)
 
     def _calculate_portfolio_risk(
         self,
