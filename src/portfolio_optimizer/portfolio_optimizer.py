@@ -86,10 +86,11 @@ class PortfolioOptimizer:
         risk_free_rate: float = 0.0,
         fixed_securities: Sequence[PortfolioSecurity] = list(),
         max_weight: float = 0.2,
-        yearly_return_method: YearlyReturn = YearlyReturn.CAGR
+        yearly_return_method: YearlyReturn = YearlyReturn.CAGR,
+        diversification_penalty: float = 0.0
     ) -> Portfolio:
         assert 0 <= weight_return <= 1
-        assert 0 < max_weight <= 1, "max_weight must be between 0 and 1"
+        assert 0 < max_weight <= 1
 
         fixed_ticker_symbols = [fs.ticker_symbol for fs in fixed_securities]
         fixed_stocks = self.stocks(fixed_ticker_symbols, start_date, end_date)
@@ -134,7 +135,7 @@ class PortfolioOptimizer:
         result: OptimizeResult = minimize(
             self._optimize,
             initial_weights,
-            args=(mean_returns_annualized, covariance_matrix, weight_return, risk_free_rate),
+            args=(mean_returns_annualized, covariance_matrix, weight_return, risk_free_rate, diversification_penalty),  # Add parameter
             method='SLSQP',
             bounds=bounds,
             constraints=constraints
@@ -221,15 +222,20 @@ class PortfolioOptimizer:
         mean_annualized_returns: NDArray,
         cov_matrix: pd.DataFrame,
         weight_return: float,
-        risk_free_rate: float
+        risk_free_rate: float,
+        diversification_penalty: float
     ) -> float:
         return self._determine_sharpe_ratio_for_optimization(
             weights,
             mean_annualized_returns,
             cov_matrix,
             weight_return,
-            risk_free_rate
+            risk_free_rate,
+            diversification_penalty
         )
+
+    def _calculate_hhi(self, weights: NDArray[np.floating[Any]]) -> float:
+        return sum(weights**2)
 
     def _determine_sharpe_ratio_for_optimization(
         self,
@@ -237,13 +243,19 @@ class PortfolioOptimizer:
         returns: NDArray,
         covariance_matrix: pd.DataFrame,
         weight_return: float,
-        risk_free_rate: float
+        risk_free_rate: float,
+        diversification_penalty: float
     ) -> float:
         portfolio_return = self._calculate_weighted_return(weights, returns)
         portfolio_risk = self._calculate_portfolio_risk(weights, covariance_matrix)
-        return - self._calculate_sharpe_ratio(
+        
+        sharpe = self._calculate_sharpe_ratio(
             portfolio_return, portfolio_risk, risk_free_rate, weight_return
         )
+        
+        hhi = self._calculate_hhi(weights)
+
+        return -(sharpe - (hhi * diversification_penalty))
 
     @staticmethod
     def _calculate_weighted_return(

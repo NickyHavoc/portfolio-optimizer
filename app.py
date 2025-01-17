@@ -99,15 +99,19 @@ yearly_return_method = st.selectbox(
 selected_yearly_return_enum = YearlyReturn.from_string(yearly_return_method)
 
 weight_return = st.slider(
-    "Weight for Return in Sharpe Ratio (0 to 1):", min_value=0.0, max_value=1.0, value=0.5, step=0.01
+    "Weight for Return in Sharpe Ratio:", min_value=0.0, max_value=1.0, value=0.5, step=0.01
 )
 
 risk_free_rate = st.slider(
-    "Risk-Free Rate (0.0 to 0.1):", min_value=0.0, max_value=0.1, value=0.02, step=0.001
+    "Risk-Free Rate:", min_value=0.0, max_value=0.1, value=0.02, step=0.001
 )
 
 max_weight = st.slider(
-    "Maximum Weight per Security (0 to 1):", min_value=0.0, max_value=1.0, value=0.2, step=0.01
+    "Maximum Weight per Security:", min_value=0.0, max_value=1.0, value=0.2, step=0.01
+)
+
+diversification_penalty = st.slider(
+    "Diversification Penalty:", min_value=0.0, max_value=5.0, value=0.0, step=0.1
 )
 
 # Section 4: Optimize Portfolio
@@ -127,7 +131,8 @@ if st.button("Calculate Optimal Portfolio"):
                 risk_free_rate=risk_free_rate,
                 fixed_securities=fixed_securities,
                 max_weight=max_weight,
-                yearly_return_method=selected_yearly_return_enum  # Pass the enum here
+                yearly_return_method=selected_yearly_return_enum,
+                diversification_penalty=diversification_penalty
             )
             st.session_state["portfolio"] = portfolio
         except Exception as e:
