@@ -143,8 +143,10 @@ class StockRepository:
         start_date: str,
         end_date: str
     ) -> pd.DataFrame:
-        filtered_df = df.loc[start_date:end_date]
-        return filtered_df.dropna(axis=1)
+        filtered_df_by_date = df.loc[start_date:end_date]
+        threshold = 0.9 * len(filtered_df_by_date)
+        filtered_df_by_too_few_values = filtered_df_by_date.dropna(axis=1, thresh=threshold)
+        return filtered_df_by_too_few_values.dropna(axis=0)
 
     def get_available_ticker_symbols(self, start_date: str, end_date: str) -> Sequence[str]:
         return self._get_all_full_columns_in_date_range(self.stocks, start_date, end_date).columns.to_list()

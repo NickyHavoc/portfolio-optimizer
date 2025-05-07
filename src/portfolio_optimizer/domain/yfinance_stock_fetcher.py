@@ -45,13 +45,14 @@ class YFinanceStockFetcher(BaseStockFetcher):
         end_date: str,
     ) -> pd.DataFrame:
         data = yf.download(
-            ticker_symbols, 
+            ticker_symbols,
             start=start_date, 
             end=self._add_one_day_to_date(end_date),
             actions=True
         )
 
-        adj_close = data['Adj Close']
+        adj_close = data['Close']
+
         dividends = data.get('Dividends', pd.DataFrame(0, index=adj_close.index, columns=ticker_symbols))
 
         adj_close_with_dividends = adj_close.copy()
@@ -75,7 +76,7 @@ class YFinanceStockFetcher(BaseStockFetcher):
     ) -> pd.DataFrame:
         return yf.download(
             ticker_symbols, start=start_date, end=self._add_one_day_to_date(end_date)
-        )['Adj Close']
+        )['Close']
 
     @staticmethod
     def _add_one_day_to_date(date_str: str) -> str:

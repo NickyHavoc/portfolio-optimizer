@@ -149,20 +149,28 @@ class PortfolioOptimizer:
         optimal_return = self._calculate_weighted_return(final_weights, mean_returns_annualized)
         optimal_risk = self._calculate_portfolio_risk(final_weights, covariance_matrix)
 
-        # Return the optimal portfolio with performance statistics
+        security_aggregates = {}
+        for ticker, weight, ret, risk in zip(joined_ticker_symbols, final_weights, mean_returns_annualized, stdev_annualized):
+            if ticker not in security_aggregates:
+                security_aggregates[ticker] = {
+                    'weight': weight,
+                    'annual_return': ret,
+                    'annual_risk': risk
+                }
+            else:
+                security_aggregates[ticker]['weight'] += weight
+
         return Portfolio(
             securities=[
                 PortfolioSecurity(
-                    ticker_symbol=ticker_symbol,
-                    weight=weight,
+                    ticker_symbol=ticker,
+                    weight=data['weight'],
                     performance=SecurityPerformance(
-                        sharpe=self._calculate_sharpe_ratio(annual_return, annual_risk, risk_free_rate),
-                        annual_return=annual_return,
-                        annual_risk=annual_risk
+                        sharpe=self._calculate_sharpe_ratio(data['annual_return'], data['annual_risk'], risk_free_rate),
+                        annual_return=data['annual_return'],
+                        annual_risk=data['annual_risk']
                     )
-                ) for ticker_symbol, weight, annual_return, annual_risk in zip(
-                    joined_ticker_symbols, final_weights, mean_returns_annualized, stdev_annualized
-                )
+                ) for ticker, data in security_aggregates.items()
             ],
             performance=SecurityPerformance(
                 sharpe=self._calculate_sharpe_ratio(optimal_return, optimal_risk, risk_free_rate),
